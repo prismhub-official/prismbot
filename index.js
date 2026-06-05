@@ -1,51 +1,153 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const http = require('http');
+const express = require('express');
 
-// 1. SNEAKY DUMMY SERVER FOR RENDER
-// Render expects a web port to be open, or it will think the bot crashed.
-http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('PrismHub Bot Matrix is Active!\n');
-}).listen(process.env.PORT || 3000, () => {
-    console.log("⚓ Render web listener is open and happy.");
+// 1. SETUP RENDER KEEP-ALIVE SERVER
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('🔮 Prismbot Welcomer is running 24/7!');
 });
 
-// 2. DISCORD BOT CODE
+app.listen(PORT, () => {
+    console.log(`⚓ Render web listener is open on port ${PORT}`);
+});
+
+// 2. INITIALIZE DISCORD BOT CLIENT
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
     ]
 });
 
-const BOT_TOKEN = process.env.TOKEN; // Securely pulled from Render
-const WELCOME_CHANNEL_ID = 'YOUR_WELCOME_CHANNEL_ID_HERE'; // 🚨 Replace with your channel ID!
+// --- DYNAMIC CONFIGURATION MEMORY ---
+let WELCOME_CHANNEL_ID = null; 
+let LEAVE_CHANNEL_ID = null; 
 
+// 3. BOT READY EVENT
 client.once('ready', () => {
-    console.log(`🔮 ${client.user.tag} is online and guarding the gates!`);
+    console.log(`🔮 Bot is online as ${client.user.tag} and guarding the gates!`);
 });
 
+// 4. MEMBER JOIN EVENT (WELCOME)
 client.on('guildMemberAdd', async (member) => {
+    if (!WELCOME_CHANNEL_ID) return console.log("❌ Welcome channel has not been set yet.");
+    
     const channel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
-    if (!channel) return;
+    if (!channel) return console.log("❌ Welcome channel not found.");
 
     const welcomeEmbed = new EmbedBuilder()
-        .setColor('#a239ea')
-        .setTitle('🔮 NEW MANIFESTATION IN THE HUB')
-        .setDescription(`Welcome to the matrix, ${member}! We're thrilled to have you here.`)
-        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
-        .addFields(
-            { name: '⚡ Account Created', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true },
-            { name: '🏆 Nexus Member Count', value: `**#${member.guild.memberCount}**`, inline: true }
-        )
-        .setFooter({ text: `⚡ Owned by XianCarlLopez` })
+        .setColor('#5865F2')
+        .setTitle('✨ Welcome to the Server! ✨')
+        .setDescription(`Welcome <@${member.id}> to **${member.guild.name}**!\nWe are thrilled to have you here. 🎉`)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .addFields({ name: 'Member Count', value: `You are member #${member.guild.memberCount}!`, inline: true })
+        .setTimestamp()
+        .setFooter({ text: `ID: ${member.id}` });
+
+    channel.send({ content: `👋 Welcome <@${member.id}>!`, embeds: [welcomeEmbed] });
+});
+
+// 5. MEMBER LEAVE EVENT (GOODBYE)
+client.on('guildMemberRemove', async (member) => {
+    if (!LEAVE_CHANNEL_ID) return console.log("❌ Leave channel has not been set yet.");
+    
+    const channel = member.guild.channels.cache.get(LEAVE_CHANNEL_ID);
+    if (!channel) return console.log("❌ Leave channel not found.");
+
+    const leaveEmbed = new EmbedBuilder()
+        .setColor('#ED4245')
+        .setTitle('👋 Goodbye!')
+        .setDescription(`**${member.user.tag}** has left the server. We'll miss you! 🥺`)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .addFields({ name: 'Member Count', value: `We now have ${member.guild.memberCount} members.`, inline: true })
         .setTimestamp();
 
-    try {
-        await channel.send({ content: `Hey ${member}! Welcome to the server! ✨`, embeds: [welcomeEmbed] });
-    } catch (error) {
-        console.error("Embed error:", error);
+    channel.send({ embeds: [leaveEmbed] });
+});
+
+// 6. ALL WELCOMER COMMANDS HANDLER
+client.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.content.startsWith('!')) return;
+
+    const args = message.content.slice(1).trim().split(/+/);
+    const command = args.shift().toLowerCase();
+
+    // ⚙️ !setwelcome #channel
+    if (command === 'setwelcome') {
+        if (!message.member.permissions.has('ManageGuild')) return message.reply('❌ Requires "Manage Server" permission.');
+        const targetChannel = message.mentions.channels.first();
+        if (!targetChannel) return message.reply('❌ Please mention a valid channel! Example: `!setwelcome #welcome-log`');
+
+        WELCOME_CHANNEL_ID = targetChannel.id;
+        return message.reply(`✅ **Success!** Welcome messages will now be sent to ${targetChannel}.`);
+    }
+
+    // ⚙️ !setleave #channel
+    if (command === 'setleave') {
+        if (!message.member.permissions.has('ManageGuild')) return message.reply('❌ Requires "Manage Server" permission.');
+        const targetChannel = message.mentions.channels.first();
+        if (!targetChannel) return message.reply('❌ Please mention a valid channel! Example: `!setleave #leave-log`');
+
+        LEAVE_CHANNEL_ID = targetChannel.id;
+        return message.reply(`✅ **Success!** Leave messages will now be sent to ${targetChannel}.`);
+    }
+
+    // ℹ️ !welcomehelp
+    if (command === 'welcomehelp') {
+        const currentWelcome = WELCOME_CHANNEL_ID ? `<#${WELCOME_CHANNEL_ID}>` : '`Not Set ❌`';
+        const currentLeave = LEAVE_CHANNEL_ID ? `<#${LEAVE_CHANNEL_ID}>` : '`Not Set ❌`';
+        
+        const helpEmbed = new EmbedBuilder()
+            .setColor('#7289DA')
+            .setTitle('🔮 PrismBot Welcomer Command Hub')
+            .setDescription(`**Welcome Channel:** ${currentWelcome}\n**Leave Channel:** ${currentLeave}\n\nManage settings with these commands:`)
+            .addFields(
+                { name: '`!setwelcome #channel`', value: 'Sets the channel for member join logs.' },
+                { name: '`!setleave #channel`', value: 'Sets the channel for member leave logs.' },
+                { name: '`!welcometest`', value: 'Simulates a join event.' },
+                { name: '`!leavetest`', value: 'Simulates a leave event.' },
+                { name: '`!stats`', value: 'Shows server total members.' },
+                { name: '`!ping`', value: 'Checks the bot latency.' }
+            )
+            .setFooter({ text: 'PrismBot System Commands' });
+
+        return message.reply({ embeds: [helpEmbed] });
+    }
+
+    // 🚀 !welcometest
+    if (command === 'welcometest') {
+        if (!message.member.permissions.has('ManageGuild')) return message.reply('❌ Requires "Manage Server" permission.');
+        if (!WELCOME_CHANNEL_ID) return message.reply('❌ Set a welcome channel first using `!setwelcome #channel`');
+        
+        message.reply('🔄 Simulating a **Member Join** event...');
+        client.emit('guildMemberAdd', message.member);
+        return;
+    }
+
+    // 🚪 !leavetest
+    if (command === 'leavetest') {
+        if (!message.member.permissions.has('ManageGuild')) return message.reply('❌ Requires "Manage Server" permission.');
+        if (!LEAVE_CHANNEL_ID) return message.reply('❌ Set a leave channel first using `!setleave #channel`');
+
+        message.reply('🔄 Simulating a **Member Leave** event...');
+        client.emit('guildMemberRemove', message.member);
+        return;
+    }
+
+    // 📊 !stats
+    if (command === 'stats') {
+        return message.reply(`📊 **${message.guild.name} Stats:**\nTotal Members: **${message.guild.memberCount}**`);
+    }
+
+    // 🏓 !ping
+    if (command === 'ping') {
+        return message.reply(`🏓 Pong! Bot latency is **${Date.now() - message.createdTimestamp}ms**.`);
     }
 });
 
-client.login(BOT_TOKEN);
+client.login(process.env.TOKEN);
+        
