@@ -73,7 +73,8 @@ client.on('guildMemberRemove', async (member) => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.content.startsWith('!')) return;
 
-    const args = message.content.slice(1).trim().split(/+/);
+    // Fixed text split regex syntax here:
+    const args = message.content.slice(1).trim().split(/\s+/);
     const command = args.shift().toLowerCase();
 
     // ⚙️ !setwelcome #channel
@@ -150,4 +151,4 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(process.env.TOKEN);
-        
+            
